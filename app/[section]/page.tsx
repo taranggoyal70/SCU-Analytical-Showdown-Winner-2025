@@ -35,6 +35,8 @@ type SectionPageProps = {
 	}>;
 };
 
+export const dynamic = "force-dynamic";
+
 export function generateStaticParams() {
 	return dashboardSections.map((section) => ({ section: section.slug }));
 }
@@ -230,7 +232,7 @@ export default async function SectionPage({
 					<div>
 						<h2>Source audit</h2>
 						<p className="muted">
-							No hidden local state; this table is generated from committed CSVs.
+							No hidden browser state; this table is generated from the active {summary.dataSource.kind === "blob" ? "Blob upload" : "bootstrap dataset"}.
 						</p>
 					</div>
 					<div className="panel-actions">

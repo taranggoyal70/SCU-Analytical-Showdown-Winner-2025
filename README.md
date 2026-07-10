@@ -4,16 +4,21 @@ Production-style analytics web app for the SCU Analytical Showdown Shopee/Nazava
 
 Live app: [https://scu-analytical-showdown.vercel.app](https://scu-analytical-showdown.vercel.app)
 
-The primary product is now a proper Next.js web app, not Streamlit. It reads the committed cleaned CSVs from `data/cleaned`, computes metrics on the server, renders a polished dashboard, and exposes JSON APIs for the same source-backed analytics.
+The primary product is now a proper Next.js web app, not Streamlit. A seller can upload fresh Shopee CSV/XLSX exports, the app stores them privately in Vercel Blob, validates and normalizes them, and activates the complete batch without a rebuild. The committed CSVs remain only as bootstrap data for a new environment with no active Blob manifest.
 
 ## What is included
 
 - Next.js App Router dashboard in `app/`
 - Multi-page analytics routes instead of a single compressed page
-- Server-side CSV analytics engine in `lib/analytics.ts`
+- Server-side CSV/XLSX analytics engine in `lib/analytics.ts`
+- Protected seller upload workspace at `/upload`
+- Direct-to-Blob CSV/XLSX uploads up to 100 MB per file
+- Atomic batch manifests: failed uploads never replace the live dashboard
+- Private raw exports plus normalized Blob artifacts
+- 30-second analytics cache with immediate invalidation after publish
 - JSON summary API at `/api/summary`
 - Optional FastAPI backend in `backend/`
-- Shared source-of-truth data in `data/cleaned/*.csv`
+- Bundled bootstrap data in `data/cleaned/*.csv`
 - URL-based filters for dataset/date state
 - Dataset audit and data-quality visibility
 - Docker, Render, and compose config updated for the web app/backend split
@@ -43,7 +48,7 @@ The Streamlit app had a broad feature surface. The Next.js app now restores that
 /spend-optimizer        Promotional Spend Optimizer
 ```
 
-Each section has its own route, navigation entry, KPIs, charts, recommendations, and source audit. Pages use the committed CSV data where available; model-style pages are labeled as baseline/readiness views unless a trained model artifact is wired into the web runtime.
+Each section has its own route, navigation entry, KPIs, charts, recommendations, and source audit. Pages use the active Blob batch when one exists and the bundled CSVs only as bootstrap data; model-style pages are labeled as baseline/readiness views unless a trained model artifact is wired into the web runtime.
 
 ## What was fixed
 
@@ -51,7 +56,7 @@ Each section has its own route, navigation entry, KPIs, charts, recommendations,
 - Removed the legacy Streamlit dashboard, ML scripts, and automation bot entirely — they relied on machine-local absolute paths, demo-only auth, and simulated data, and could not run anywhere else.
 - Removed hardcoded demo-login UX, placeholder secrets, and unused Postgres/Redis/JWT settings.
 - Parsed the official Shopee income reports (`revenue_2_cleaned.csv`) into a structured Income Statements dataset instead of loading them as 372 rows of zero-metric noise. Income statements are kept out of blended KPI totals to avoid double-counting the per-channel sales reports.
-- Made the CSV loader resilient: one malformed file can no longer take the whole app down, and a failed load is retried on the next request instead of being cached forever.
+- Made the normalized export loader resilient: one malformed dataset can no longer take the whole app down, and Blob reads are refreshed on a short cache TTL.
 - Added error handling to the summary API, a root error boundary, and a not-found page.
 
 ## Run the web app locally
@@ -129,15 +134,43 @@ Services:
 - Web: `http://localhost:3000`
 - Backend: `http://localhost:8000`
 
+## Live export workflow
+
+1. Open `/upload` and enter the password stored in `UPLOAD_SECRET`.
+2. Drag in one or more Shopee `.csv` or `.xlsx` exports.
+3. Select every export that should make up the new live batch.
+4. Choose **Validate and publish**.
+5. The browser uploads directly to private Vercel Blob. The server validates file type, export family, rows, and size before writing the active manifest.
+6. The analytics cache is invalidated and the next dashboard request reads the new batch.
+
+The upload session is held in a signed, HTTP-only, same-site cookie and expires after eight hours. No authentication state or export data is stored in browser local storage.
+
+## Vercel Blob configuration
+
+Create and connect a private Blob store to the Vercel project:
+
+```bash
+vercel blob create-store nazava-datasets --access private --yes
+vercel env add UPLOAD_SECRET production
+vercel env add UPLOAD_SECRET preview
+vercel env pull .env.local --yes
+```
+
+Vercel injects `BLOB_READ_WRITE_TOKEN` when the store is connected. To seed the committed judge dataset into an empty store:
+
+```bash
+npm run blob:seed
+```
+
 ## Data source
 
-The source of truth is:
+The runtime source of truth is the latest valid manifest under `shopee-exports/manifests/` in private Vercel Blob. Raw and normalized objects are versioned by batch ID. If no manifest exists, the app falls back to:
 
 ```text
 data/cleaned/*.csv
 ```
 
-The dashboard and backend calculate visible values from those files. KPI/chart values are not hardcoded.
+The Next.js dashboard calculates visible values from the active Blob batch. KPI/chart values are not hardcoded. The optional FastAPI backend continues to read the bundled bootstrap CSVs.
 
 ## History
 

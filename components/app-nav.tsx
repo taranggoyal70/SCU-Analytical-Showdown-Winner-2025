@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { UploadCloud } from "lucide-react";
 import { dashboardSections } from "@/lib/sections";
 
 export function AppNav() {
@@ -19,6 +20,9 @@ export function AppNav() {
 					</Link>
 				))}
 			</nav>
+			<Link href="/upload" className="header-upload">
+				<UploadCloud size={15} /> Upload
+			</Link>
 		</header>
 	);
 }

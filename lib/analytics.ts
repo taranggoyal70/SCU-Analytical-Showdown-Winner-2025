@@ -1,7 +1,7 @@
-import { readdir, readFile } from "node:fs/promises";
-import path from "node:path";
-import Papa from "papaparse";
+import { cache } from "react";
 import { trimPartialTail } from "@/lib/forecast";
+import { loadAnalyticsSnapshot } from "@/lib/data-source";
+import type { NormalizedExport } from "@/lib/export-ingestion";
 
 export type MetricName = "revenue" | "orders" | "visitors" | "cost";
 
@@ -86,9 +86,13 @@ export type DashboardSummary = {
 		rowsWithoutDates: number;
 		rowsWithoutSource: number;
 	};
+	dataSource: {
+		kind: "blob" | "bundled";
+		batchId: string | null;
+		uploadedAt: string | null;
+		files: number;
+	};
 };
-
-const dataDirectory = path.join(process.cwd(), "data", "cleaned");
 
 const metricColumns: Record<MetricName, string[]> = {
 	revenue: [
@@ -129,17 +133,6 @@ const metricColumns: Record<MetricName, string[]> = {
 		"Biaya Layanan yang Dikenakan (Pesanan Dibuat)",
 	],
 };
-
-function datasetLabel(fileName: string) {
-	return fileName
-		.replace(/_cleaned\.csv$/i, "")
-		.replace(/_/g, " ")
-		.replace(/\b\w/g, (match) => match.toUpperCase());
-}
-
-function datasetId(fileName: string) {
-	return fileName.replace(/\.csv$/i, "");
-}
 
 function cleanCell(value: unknown) {
 	if (value === null || value === undefined) return "";
@@ -370,36 +363,27 @@ function parseIncomeStatements(
 	);
 }
 
-function isIncomeReportDataset(fileName: string) {
-	return fileName.startsWith("revenue_2");
+function isIncomeReportDataset(datasetId: string) {
+	return datasetId.startsWith("revenue_2");
 }
 
-async function readDataset(fileName: string): Promise<AnalyticsRow[]> {
-	const filePath = path.join(dataDirectory, fileName);
-	const csv = await readFile(filePath, "utf8");
-	const parsed = Papa.parse<Record<string, string>>(csv, {
-		header: true,
-		skipEmptyLines: false,
-		transform: (value) => cleanCell(value),
-	});
-	const id = datasetId(fileName);
-	const label = datasetLabel(fileName);
-	const data = parsed.data.filter((row) =>
+function readDataset(dataset: NormalizedExport): AnalyticsRow[] {
+	const data = dataset.rows.filter((row) =>
 		Object.values(row).some((value) => cleanCell(value)),
 	);
 
-	if (isIncomeReportDataset(fileName)) {
-		return parseIncomeStatements(data, id);
+	if (isIncomeReportDataset(dataset.datasetId)) {
+		return parseIncomeStatements(data, dataset.datasetId);
 	}
 
 	return data.map((row) => {
 		const period = extractPeriod(row);
-		const category = cleanCell(row.Category) || label;
+		const category = cleanCell(row.Category) || dataset.category;
 		return {
-			datasetId: id,
-			datasetLabel: label,
+			datasetId: dataset.datasetId,
+			datasetLabel: dataset.datasetLabel,
 			category,
-			sourceFile: cleanCell(row.Source_File),
+			sourceFile: cleanCell(row.Source_File) || dataset.originalName,
 			periodStart: iso(period.start),
 			periodEnd: iso(period.end),
 			values: row,
@@ -413,35 +397,23 @@ async function readDataset(fileName: string): Promise<AnalyticsRow[]> {
 	});
 }
 
-let cachedRows: Promise<AnalyticsRow[]> | null = null;
+const loadAnalyticsData = cache(async () => {
+	const snapshot = await loadAnalyticsSnapshot();
+	return {
+		rows: snapshot.datasets.flatMap((dataset) => {
+			try {
+				return readDataset(dataset);
+			} catch (error) {
+				console.error(`Failed to read dataset ${dataset.originalName}:`, error);
+				return [];
+			}
+		}),
+		source: snapshot.source,
+	};
+});
 
 export async function loadAnalyticsRows() {
-	if (!cachedRows) {
-		const pending = readdir(dataDirectory)
-			.then(async (files) => {
-				const csvFiles = files.filter((file) => file.endsWith(".csv")).sort();
-				const datasets = await Promise.all(
-					csvFiles.map(async (file) => {
-						try {
-							return await readDataset(file);
-						} catch (error) {
-							// A single malformed file must not take the whole app down.
-							console.error(`Failed to read dataset ${file}:`, error);
-							return [];
-						}
-					}),
-				);
-				return datasets.flat();
-			})
-			.catch((error) => {
-				// Do not cache a rejected promise: allow the next request to retry.
-				cachedRows = null;
-				throw error;
-			});
-		cachedRows = pending;
-	}
-
-	return cachedRows;
+	return (await loadAnalyticsData()).rows;
 }
 
 function sum(rows: AnalyticsRow[], metric: MetricName) {
@@ -666,7 +638,8 @@ function buildInsights(summary: Omit<DashboardSummary, "insights">) {
 }
 
 export async function getDashboardSummary(filters: SearchFilters = {}): Promise<DashboardSummary> {
-	const allRows = await loadAnalyticsRows();
+	const analyticsData = await loadAnalyticsData();
+	const allRows = analyticsData.rows;
 	const filteredRows = allRows.filter((row) => isWithinFilters(row, filters));
 
 	// Income statements double-count the per-channel sales reports, so they
@@ -732,6 +705,7 @@ export async function getDashboardSummary(filters: SearchFilters = {}): Promise<
 			rowsWithoutDates: filteredRows.filter((row) => !row.periodStart).length,
 			rowsWithoutSource: filteredRows.filter((row) => !row.sourceFile).length,
 		},
+		dataSource: analyticsData.source,
 	};
 
 	return {

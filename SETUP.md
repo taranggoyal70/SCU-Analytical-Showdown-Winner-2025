@@ -36,6 +36,7 @@ Key routes to verify:
 /mass-chat
 /off-platform
 /paylater
+/income
 /comparison
 /adaptive-learning
 /spend-optimizer
@@ -48,6 +49,34 @@ npm run lint
 npm run build
 npm start
 ```
+
+## Live CSV/XLSX uploads
+
+The `/upload` route uses private Vercel Blob and a password-protected, HTTP-only admin session.
+
+Required environment variables:
+
+```text
+BLOB_READ_WRITE_TOKEN   Added automatically when a Blob store is linked
+UPLOAD_SECRET           Long seller-admin password
+```
+
+Create a private store and sync local development variables:
+
+```bash
+vercel blob create-store nazava-datasets --access private --yes
+vercel env add UPLOAD_SECRET production
+vercel env add UPLOAD_SECRET preview
+vercel env pull .env.local --yes
+```
+
+For a brand-new store, seed the bundled dataset once:
+
+```bash
+npm run blob:seed
+```
+
+Uploads go directly from the browser to Blob, then `/api/uploads/finalize` validates and activates the complete batch. The cache TTL is 30 seconds and a successful publish invalidates it immediately.
 
 ## Optional backend API
 
@@ -82,13 +111,13 @@ Backend: http://localhost:8000
 
 ## Data
 
-The active app and backend load:
+The Next.js app loads the latest valid Vercel Blob manifest. It falls back to the following bootstrap files when Blob is not configured or empty:
 
 ```text
 data/cleaned/*.csv
 ```
 
-Dashboard filters are encoded in the URL as `dataset`, `from`, and `to` query parameters.
+The optional backend still reads these files directly. Dashboard filters are encoded in the URL as `dataset`, `from`, and `to` query parameters.
 
 ## History
 

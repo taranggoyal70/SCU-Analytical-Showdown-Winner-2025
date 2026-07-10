@@ -38,6 +38,8 @@ type PageProps = {
 	}>;
 };
 
+export const dynamic = "force-dynamic";
+
 function metricNote(value: string | null, fallback = "Calculated from cleaned CSVs") {
 	return value || fallback;
 }
@@ -76,10 +78,9 @@ export default async function Home({ searchParams }: PageProps) {
 					<h1 className="title">Every Shopee signal. One source of truth.</h1>
 					<p className="subtitle">
 						Revenue, traffic, campaigns, service quality, and official income
-						statements — every number on this dashboard is computed on the server
-						from audited store exports, on every request. Filters live in the URL,
-						so any view you build can be shared as a link and opens identically
-						for everyone.
+						statements—from fresh Shopee CSV/XLSX exports stored privately in
+						Vercel Blob. Publish a new seller batch without a rebuild; the server
+						computes every metric on request and keeps shareable filters in the URL.
 					</p>
 				</div>
 
@@ -126,8 +127,9 @@ export default async function Home({ searchParams }: PageProps) {
 							<CheckCircle2 color="#22c55e" />
 						</div>
 						<p className="muted">
-							Filters are server-side query parameters. Share the URL and the same
-							audit view opens for everyone.
+							{summary.dataSource.kind === "blob"
+								? `Live Blob batch published ${summary.dataSource.uploadedAt ? new Date(summary.dataSource.uploadedAt).toLocaleString() : "recently"}.`
+								: "Bootstrap data is active until the first seller upload is published."}
 						</p>
 					</div>
 				</div>
@@ -323,7 +325,7 @@ export default async function Home({ searchParams }: PageProps) {
 						<div>
 							<h2>Dataset audit</h2>
 							<p className="muted">
-								Every row below is generated from files in data/cleaned.
+								Every row below is generated from the active {summary.dataSource.kind === "blob" ? "private Blob batch" : "bundled bootstrap batch"}.
 							</p>
 						</div>
 						<div className="panel-actions">
