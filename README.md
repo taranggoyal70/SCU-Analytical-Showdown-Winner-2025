@@ -9,6 +9,7 @@ The primary product is now a proper Next.js web app, not Streamlit. It reads the
 ## What is included
 
 - Next.js App Router dashboard in `app/`
+- Multi-page analytics routes instead of a single compressed page
 - Server-side CSV analytics engine in `lib/analytics.ts`
 - JSON summary API at `/api/summary`
 - Optional FastAPI backend in `backend/`
@@ -16,6 +17,32 @@ The primary product is now a proper Next.js web app, not Streamlit. It reads the
 - URL-based filters for dataset/date state
 - Dataset audit and data-quality visibility
 - Docker, Render, and compose config updated for the web app/backend split
+
+## Restored web app sections
+
+The Streamlit app had a broad feature surface. The Next.js app now restores that structure as proper web routes:
+
+```text
+/                       Overview
+/traffic                Traffic Analysis
+/sales                  Sales Analysis
+/campaigns              Campaign Performance
+/customer-service       Customer Service Analytics
+/products               Product Analytics
+/forecast               Sales Forecast baseline
+/segments               Customer Segments
+/recommendations        Product Recommendations
+/campaign-optimizer     Campaign ROI Optimizer
+/automation             Automation Bot command center
+/mass-chat              Mass Chat Broadcasts
+/off-platform           Off-Platform Traffic
+/paylater               Shopee PayLater
+/comparison             Period Comparison
+/adaptive-learning      Adaptive Learning readiness
+/spend-optimizer        Promotional Spend Optimizer
+```
+
+Each section has its own route, navigation entry, KPIs, charts, recommendations, and source audit. Pages use the committed CSV data where available; model-style pages are labeled as baseline/readiness views unless a trained model artifact is wired into the web runtime.
 
 ## What was fixed
 

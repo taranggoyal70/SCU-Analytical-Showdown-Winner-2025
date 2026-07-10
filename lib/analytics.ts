@@ -6,6 +6,7 @@ export type MetricName = "revenue" | "orders" | "visitors" | "cost";
 
 export type SearchFilters = {
 	dataset?: string;
+	datasetIds?: string[];
 	from?: string;
 	to?: string;
 };
@@ -209,6 +210,9 @@ function monthKey(value: string | null) {
 }
 
 function isWithinFilters(row: AnalyticsRow, filters: SearchFilters) {
+	if (filters.datasetIds?.length && !filters.datasetIds.includes(row.datasetId)) {
+		return false;
+	}
 	if (filters.dataset && row.datasetId !== filters.dataset) return false;
 
 	if (!filters.from && !filters.to) return true;
@@ -434,6 +438,7 @@ export async function getDashboardSummary(filters: SearchFilters = {}): Promise<
 	const baseSummary = {
 		filters: {
 			dataset: filters.dataset ?? "all",
+			datasetIds: filters.datasetIds ?? [],
 			from: filters.from ?? "",
 			to: filters.to ?? "",
 		},

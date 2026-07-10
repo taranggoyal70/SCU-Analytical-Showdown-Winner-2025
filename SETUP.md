@@ -20,6 +20,27 @@ Open:
 http://localhost:3000
 ```
 
+Key routes to verify:
+
+```text
+/traffic
+/sales
+/campaigns
+/customer-service
+/products
+/forecast
+/segments
+/recommendations
+/campaign-optimizer
+/automation
+/mass-chat
+/off-platform
+/paylater
+/comparison
+/adaptive-learning
+/spend-optimizer
+```
+
 Production-style build:
 
 ```bash
