@@ -5,16 +5,24 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-	const url = new URL(request.url);
-	const dataset = url.searchParams.get("dataset") || undefined;
-	const from = url.searchParams.get("from") || undefined;
-	const to = url.searchParams.get("to") || undefined;
+	try {
+		const url = new URL(request.url);
+		const dataset = url.searchParams.get("dataset") || undefined;
+		const from = url.searchParams.get("from") || undefined;
+		const to = url.searchParams.get("to") || undefined;
 
-	const summary = await getDashboardSummary({
-		dataset: dataset === "all" ? undefined : dataset,
-		from,
-		to,
-	});
+		const summary = await getDashboardSummary({
+			dataset: dataset === "all" ? undefined : dataset,
+			from,
+			to,
+		});
 
-	return NextResponse.json(summary);
+		return NextResponse.json(summary);
+	} catch (error) {
+		console.error("Summary API failed:", error);
+		return NextResponse.json(
+			{ error: "Failed to compute analytics summary. Please try again." },
+			{ status: 500 },
+		);
+	}
 }

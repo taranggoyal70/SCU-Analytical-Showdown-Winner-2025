@@ -90,6 +90,8 @@ data/cleaned/*.csv
 
 Dashboard filters are encoded in the URL as `dataset`, `from`, and `to` query parameters.
 
-## Legacy Python tools
+## History
 
-The old Streamlit dashboard, notebooks, and ML scripts are retained for reference. They are not the production runtime.
+The original hackathon Streamlit dashboard and ML scripts were removed after the
+Next.js rewrite (they relied on machine-local paths and demo-only auth). The
+analysis notebook and presentation decks are kept as artifacts of the win.

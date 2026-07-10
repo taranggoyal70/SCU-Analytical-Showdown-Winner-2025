@@ -385,6 +385,44 @@ export async function buildSectionDetail(
 				chartKind: "source",
 			};
 		}
+		case "income": {
+			const statements = [...rows].sort((a, b) =>
+				(b.periodEnd ?? "").localeCompare(a.periodEnd ?? ""),
+			);
+			const latest = statements[0];
+			const latestIncome = latest ? latest.metrics.revenue : 0;
+			const latestExpenses = latest ? latest.metrics.cost : 0;
+			return {
+				metrics: [
+					{ label: "Statements", value: formatInteger(statements.length), note: "Parsed income reports" },
+					{ label: "Latest income", value: formatIdr(latestIncome), note: latest?.values.Statement_Period ?? "No statements" },
+					{ label: "Latest expenses", value: formatIdr(latestExpenses), note: "Total expenses in latest statement" },
+					{ label: "Latest net", value: formatIdr(latestIncome - latestExpenses), note: "Income minus expenses" },
+				],
+				focusTitle: "Statement ledger",
+				focusDescription:
+					"Each row is one official Shopee income report. Periods can overlap (e.g. an annual export next to monthly exports), so statements are shown individually instead of blindly summed.",
+				focusRows: [
+					...statements.slice(0, 4).map((statement) => ({
+						label: statement.values.Statement_Period,
+						value: formatIdr(
+							numberValue(statement.values.Statement_Net_IDR),
+						),
+						detail: `Income ${formatIdr(statement.metrics.revenue)} · expenses ${formatIdr(statement.metrics.cost)}`,
+					})),
+					...commonRows(summary),
+				],
+				playbookTitle: "Finance playbook",
+				playbook: [
+					"Reconcile channel sales dashboards against these official statements before reporting revenue externally.",
+					"Watch the expense share per statement; fee and shipping subsidy changes show up here first.",
+					"Statement windows overlap across exports — compare same-length periods only.",
+				],
+				chartTitle: "Statement income trend",
+				chartDescription: "Official income by statement period.",
+				chartKind: "trend",
+			};
+		}
 		case "comparison": {
 			const totalRevenue = allSummary.kpis.revenue || 0;
 			const share = totalRevenue ? (revenue / totalRevenue) * 100 : 0;

@@ -20,6 +20,12 @@ export type AnalyticsRow = {
 	periodEnd: string | null;
 	values: Record<string, string>;
 	metrics: Record<MetricName, number>;
+	/**
+	 * Official income statements overlap the per-channel sales reports, so they
+	 * are kept out of blended KPI totals unless the dataset is explicitly
+	 * requested via filters (e.g. the Income Statements page).
+	 */
+	excludeFromBlend?: boolean;
 };
 
 export type DatasetSummary = {
@@ -224,6 +230,89 @@ function isWithinFilters(row: AnalyticsRow, filters: SearchFilters) {
 	return true;
 }
 
+/**
+ * Shopee income reports are exported as key/value statements (label in one
+ * column, amount in another) rather than tabular rows. This parser turns each
+ * statement file into one structured row: period, total income, total
+ * expenses, and net. Duplicate exports of the same period are deduplicated.
+ */
+function parseIncomeStatements(
+	data: Array<Record<string, string>>,
+	id: string,
+): AnalyticsRow[] {
+	const label = "Income Statements";
+	const groups = new Map<string, Array<Record<string, string>>>();
+	for (const row of data) {
+		const sourceFile = cleanCell(row.Source_File);
+		if (!sourceFile) continue;
+		const current = groups.get(sourceFile) ?? [];
+		current.push(row);
+		groups.set(sourceFile, current);
+	}
+
+	const statements: AnalyticsRow[] = [];
+	const seenPeriods = new Set<string>();
+
+	for (const [sourceFile, rows] of groups) {
+		let from: string | null = null;
+		let to: string | null = null;
+		let income = 0;
+		let expenses = 0;
+
+		for (const row of rows) {
+			const labelCell =
+				cleanCell(row.Income_Report) || cleanCell(row["Income Report"]);
+			if (!labelCell) continue;
+			const amountCell = cleanCell(row["Unnamed: 3"]);
+			const dateCell = cleanCell(row["Unnamed: 1"]);
+
+			if (/^(dari|from)$/i.test(labelCell) && dateCell) from = dateCell;
+			else if (/^(ke|to)$/i.test(labelCell) && dateCell) to = dateCell;
+			else if (/^1\.\s*Total\s+(Pendapatan|Revenue)/i.test(labelCell)) {
+				income = parseNumber(amountCell);
+			} else if (/^2\.\s*Total\s+(Pengeluaran|Expenses)/i.test(labelCell)) {
+				expenses = Math.abs(parseNumber(amountCell));
+			}
+		}
+
+		if (!income && !expenses) continue;
+		const periodKey = `${from ?? "?"}_${to ?? "?"}`;
+		if (seenPeriods.has(periodKey)) continue;
+		seenPeriods.add(periodKey);
+
+		statements.push({
+			datasetId: id,
+			datasetLabel: label,
+			category: "income statement",
+			sourceFile,
+			periodStart: from,
+			periodEnd: to,
+			values: {
+				Statement_Period: `${from ?? "unknown"} → ${to ?? "unknown"}`,
+				Statement_Income_IDR: String(income),
+				Statement_Expenses_IDR: String(expenses),
+				Statement_Net_IDR: String(income - expenses),
+				Source_File: sourceFile,
+			},
+			metrics: {
+				revenue: income,
+				orders: 0,
+				visitors: 0,
+				cost: expenses,
+			},
+			excludeFromBlend: true,
+		});
+	}
+
+	return statements.sort((a, b) =>
+		(a.periodStart ?? "").localeCompare(b.periodStart ?? ""),
+	);
+}
+
+function isIncomeReportDataset(fileName: string) {
+	return fileName.startsWith("revenue_2");
+}
+
 async function readDataset(fileName: string): Promise<AnalyticsRow[]> {
 	const filePath = path.join(dataDirectory, fileName);
 	const csv = await readFile(filePath, "utf8");
@@ -234,39 +323,61 @@ async function readDataset(fileName: string): Promise<AnalyticsRow[]> {
 	});
 	const id = datasetId(fileName);
 	const label = datasetLabel(fileName);
+	const data = parsed.data.filter((row) =>
+		Object.values(row).some((value) => cleanCell(value)),
+	);
 
-	return parsed.data
-		.filter((row) => Object.values(row).some((value) => cleanCell(value)))
-		.map((row) => {
-			const period = extractPeriod(row);
-			const category = cleanCell(row.Category) || label;
-			return {
-				datasetId: id,
-				datasetLabel: label,
-				category,
-				sourceFile: cleanCell(row.Source_File),
-				periodStart: iso(period.start),
-				periodEnd: iso(period.end),
-				values: row,
-				metrics: {
-					revenue: metricValue(row, "revenue"),
-					orders: metricValue(row, "orders"),
-					visitors: metricValue(row, "visitors"),
-					cost: metricValue(row, "cost"),
-				},
-			};
-		});
+	if (isIncomeReportDataset(fileName)) {
+		return parseIncomeStatements(data, id);
+	}
+
+	return data.map((row) => {
+		const period = extractPeriod(row);
+		const category = cleanCell(row.Category) || label;
+		return {
+			datasetId: id,
+			datasetLabel: label,
+			category,
+			sourceFile: cleanCell(row.Source_File),
+			periodStart: iso(period.start),
+			periodEnd: iso(period.end),
+			values: row,
+			metrics: {
+				revenue: metricValue(row, "revenue"),
+				orders: metricValue(row, "orders"),
+				visitors: metricValue(row, "visitors"),
+				cost: metricValue(row, "cost"),
+			},
+		};
+	});
 }
 
 let cachedRows: Promise<AnalyticsRow[]> | null = null;
 
 export async function loadAnalyticsRows() {
 	if (!cachedRows) {
-		cachedRows = readdir(dataDirectory).then(async (files) => {
-			const csvFiles = files.filter((file) => file.endsWith(".csv")).sort();
-			const datasets = await Promise.all(csvFiles.map(readDataset));
-			return datasets.flat();
-		});
+		const pending = readdir(dataDirectory)
+			.then(async (files) => {
+				const csvFiles = files.filter((file) => file.endsWith(".csv")).sort();
+				const datasets = await Promise.all(
+					csvFiles.map(async (file) => {
+						try {
+							return await readDataset(file);
+						} catch (error) {
+							// A single malformed file must not take the whole app down.
+							console.error(`Failed to read dataset ${file}:`, error);
+							return [];
+						}
+					}),
+				);
+				return datasets.flat();
+			})
+			.catch((error) => {
+				// Do not cache a rejected promise: allow the next request to retry.
+				cachedRows = null;
+				throw error;
+			});
+		cachedRows = pending;
 	}
 
 	return cachedRows;
@@ -418,20 +529,32 @@ function buildInsights(summary: Omit<DashboardSummary, "insights">) {
 export async function getDashboardSummary(filters: SearchFilters = {}): Promise<DashboardSummary> {
 	const allRows = await loadAnalyticsRows();
 	const filteredRows = allRows.filter((row) => isWithinFilters(row, filters));
+
+	// Income statements double-count the per-channel sales reports, so they
+	// only join KPI math when the caller explicitly asks for that dataset.
+	const explicitlyRequested = new Set([
+		...(filters.datasetIds ?? []),
+		...(filters.dataset ? [filters.dataset] : []),
+	]);
+	const blendRows = filteredRows.filter(
+		(row) => !row.excludeFromBlend || explicitlyRequested.has(row.datasetId),
+	);
+
 	const datasets = buildDatasetSummaries(filteredRows);
+	const blendDatasets = buildDatasetSummaries(blendRows);
 	const datedRows = allRows.filter((row) => row.periodStart);
 	const sortedDates = datedRows.map((row) => row.periodStart as string).sort();
-	const revenue = sum(filteredRows, "revenue");
-	const orders = sum(filteredRows, "orders");
-	const visitors = sum(filteredRows, "visitors");
-	const cost = sum(filteredRows, "cost");
-	const csatValues = filteredRows
+	const revenue = sum(blendRows, "revenue");
+	const orders = sum(blendRows, "orders");
+	const visitors = sum(blendRows, "visitors");
+	const cost = sum(blendRows, "cost");
+	const csatValues = blendRows
 		.filter((row) => "CSAT_Percent" in row.values)
 		.map((row) => {
 			const value = parseNumber(row.values.CSAT_Percent);
 			return value > 0 && value <= 1 ? value * 100 : value;
 		});
-	const replyRateValues = filteredRows
+	const replyRateValues = blendRows
 		.filter((row) => "Conversion_Rate_Chats_Responded" in row.values)
 		.map((row) => parseNumber(row.values.Conversion_Rate_Chats_Responded) * 100);
 
@@ -457,10 +580,10 @@ export async function getDashboardSummary(filters: SearchFilters = {}): Promise<
 			replyRate: average(replyRateValues),
 		},
 		datasets,
-		revenueTrend: buildTrend(filteredRows),
-		channelBreakdown: buildBreakdown(datasets),
-		funnel: buildFunnel(filteredRows),
-		campaigns: buildCampaigns(datasets),
+		revenueTrend: buildTrend(blendRows),
+		channelBreakdown: buildBreakdown(blendDatasets),
+		funnel: buildFunnel(blendRows),
+		campaigns: buildCampaigns(blendDatasets),
 		quality: {
 			totalRows: filteredRows.length,
 			sourceFiles: new Set(filteredRows.map((row) => row.sourceFile).filter(Boolean)).size,

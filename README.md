@@ -37,6 +37,7 @@ The Streamlit app had a broad feature surface. The Next.js app now restores that
 /mass-chat              Mass Chat Broadcasts
 /off-platform           Off-Platform Traffic
 /paylater               Shopee PayLater
+/income                 Income Statements (official Shopee income reports)
 /comparison             Period Comparison
 /adaptive-learning      Adaptive Learning readiness
 /spend-optimizer        Promotional Spend Optimizer
@@ -47,12 +48,11 @@ Each section has its own route, navigation entry, KPIs, charts, recommendations,
 ## What was fixed
 
 - Replaced the Streamlit production entrypoint.
-- Removed hardcoded demo-login UX from the active product path.
-- Removed local absolute data path defaults from the active web app and backend.
-- Rebuilt the backend so it starts without missing service imports.
-- Removed mandatory Postgres/Redis dependencies from the active backend analytics API.
-- Trimmed backend dependencies to the packages it actually needs.
-- Kept old Python notebooks/scripts as reference assets, not production runtime.
+- Removed the legacy Streamlit dashboard, ML scripts, and automation bot entirely — they relied on machine-local absolute paths, demo-only auth, and simulated data, and could not run anywhere else.
+- Removed hardcoded demo-login UX, placeholder secrets, and unused Postgres/Redis/JWT settings.
+- Parsed the official Shopee income reports (`revenue_2_cleaned.csv`) into a structured Income Statements dataset instead of loading them as 372 rows of zero-metric noise. Income statements are kept out of blended KPI totals to avoid double-counting the per-channel sales reports.
+- Made the CSV loader resilient: one malformed file can no longer take the whole app down, and a failed load is retried on the next request instead of being cached forever.
+- Added error handling to the summary API, a root error boundary, and a not-found page.
 
 ## Run the web app locally
 
@@ -139,6 +139,8 @@ data/cleaned/*.csv
 
 The dashboard and backend calculate visible values from those files. KPI/chart values are not hardcoded.
 
-## Legacy folders
+## History
 
-The old Streamlit dashboard, notebook, Python scripts, and ML experiments remain in the repository for reference. They are not the production entrypoint.
+This project won the SCU Analytical Showdown 2025. The original hackathon
+Streamlit dashboard and ML experiments were removed after the Next.js rewrite;
+the analysis notebook and presentation decks are kept as artifacts of the win.

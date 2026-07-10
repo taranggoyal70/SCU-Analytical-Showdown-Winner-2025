@@ -247,6 +247,21 @@ export const dashboardSections: DashboardSection[] = [
 		mode: "sales",
 	},
 	{
+		slug: "income",
+		title: "Income Statements",
+		kicker: "Official finance",
+		description:
+			"Official Shopee income reports parsed per statement: total revenue, total expenses, and net released amount by reporting period. Kept out of blended KPIs to avoid double-counting channel sales reports.",
+		datasetIds: ["revenue_2_cleaned"],
+		features: [
+			"Per-statement income and expenses",
+			"Net released amount",
+			"Statement period coverage",
+			"Overlap-aware reporting",
+		],
+		mode: "sales",
+	},
+	{
 		slug: "comparison",
 		title: "Period Comparison",
 		kicker: "Time-window analysis",
