@@ -54,3 +54,4 @@ dashboard/users.json
 .next/
 node_modules/
 *.tsbuildinfo
+.vercel
