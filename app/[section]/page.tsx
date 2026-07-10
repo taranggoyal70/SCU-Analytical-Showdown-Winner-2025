@@ -20,8 +20,8 @@ import {
 	formatCompact,
 	formatIdr,
 	formatInteger,
-	formatPercent,
 } from "@/lib/format";
+import { buildSectionDetail } from "@/lib/section-detail";
 import { dashboardSections, getSection } from "@/lib/sections";
 
 type SectionPageProps = {
@@ -36,81 +36,12 @@ export function generateStaticParams() {
 	return dashboardSections.map((section) => ({ section: section.slug }));
 }
 
-function metricCards(summary: Awaited<ReturnType<typeof getDashboardSummary>>) {
-	return [
-		{
-			label: "Revenue",
-			value: formatIdr(summary.kpis.revenue),
-			note: "Source-backed tracked revenue",
-			icon: <Wallet size={16} />,
-		},
-		{
-			label: "Orders",
-			value: formatInteger(summary.kpis.orders),
-			note: `AOV ${formatIdr(summary.kpis.averageOrderValue)}`,
-			icon: <Target size={16} />,
-		},
-		{
-			label: "Visitors",
-			value: formatCompact(summary.kpis.visitors),
-			note: `Conversion ${formatPercent(summary.kpis.conversionRate, 2)}`,
-			icon: <Activity size={16} />,
-		},
-		{
-			label: "Data rows",
-			value: formatInteger(summary.quality.totalRows),
-			note: `${summary.quality.datasets} datasets / ${summary.quality.sourceFiles} files`,
-			icon: <Database size={16} />,
-		},
-	];
-}
-
-function recommendationsFor(
-	section: NonNullable<ReturnType<typeof getSection>>,
-	summary: Awaited<ReturnType<typeof getDashboardSummary>>,
-) {
-	const topDataset = summary.datasets[0];
-	const recommendations = [
-		topDataset
-			? `Prioritize ${topDataset.label}; it is the strongest measured contributor in this section.`
-			: "Add more cleaned data to unlock stronger recommendations.",
-		summary.kpis.conversionRate > 0
-			? `Use the ${formatPercent(summary.kpis.conversionRate, 2)} conversion baseline as the guardrail for experiments.`
-			: "Conversion cannot be trusted yet because the selected datasets lack enough visitor/order overlap.",
-		summary.quality.rowsWithoutDates > 0
-			? `${summary.quality.rowsWithoutDates} rows need better period metadata before this page can support clean period-over-period analysis.`
-			: "Date coverage is sufficient for period-filtered analysis.",
-	];
-
-	if (section.mode === "optimizer") {
-		const roiLeader = summary.campaigns.find((campaign) => campaign.roi > 0);
-		recommendations.push(
-			roiLeader
-				? `Budget allocation should start with ${roiLeader.name}; it has the strongest measured ROI in this slice.`
-				: "Cost fields are limited, so allocation should be treated as directional until campaign spend is complete.",
-		);
-	}
-
-	if (section.mode === "model") {
-		recommendations.push(
-			"Model-style outputs are presented as baselines/readiness views unless a trained model artifact is wired into the web runtime.",
-		);
-	}
-
-	return recommendations;
-}
-
-function forecastCard(summary: Awaited<ReturnType<typeof getDashboardSummary>>) {
-	const known = summary.revenueTrend.filter((point) => point.period !== "Unknown");
-	const recent = known.slice(-3);
-	const monthlyAverage = recent.length
-		? recent.reduce((total, point) => total + point.revenue, 0) / recent.length
-		: 0;
-	return {
-		predicted30DayRevenue: monthlyAverage,
-		basis: recent.map((point) => point.period).join(", ") || "No dated revenue",
-	};
-}
+const metricIcons = [
+	<Wallet size={16} key="wallet" />,
+	<Target size={16} key="target" />,
+	<Activity size={16} key="activity" />,
+	<Database size={16} key="database" />,
+];
 
 export default async function SectionPage({
 	params,
@@ -128,9 +59,10 @@ export default async function SectionPage({
 		}),
 		getDashboardSummary({ datasetIds: section.datasetIds }),
 	]);
-	const forecast = forecastCard(summary);
-	const cards = metricCards(summary);
-	const actions = recommendationsFor(section, summary);
+	const detail = await buildSectionDetail(section, summary, allSummary, {
+		from: query.from || undefined,
+		to: query.to || undefined,
+	});
 
 	return (
 		<main className="shell">
@@ -191,10 +123,10 @@ export default async function SectionPage({
 			</section>
 
 			<section className="kpi-grid">
-				{cards.map((card) => (
+				{detail.metrics.map((card, index) => (
 					<div className="metric-card" key={card.label}>
 						<div className="metric-label">
-							{card.icon}
+							{metricIcons[index] ?? <Activity size={16} />}
 							{card.label}
 						</div>
 						<div className="metric-value">{card.value}</div>
@@ -207,22 +139,38 @@ export default async function SectionPage({
 				<div className="panel">
 					<div className="panel-header">
 						<div>
-							<h2>Trend</h2>
-							<p className="muted">Monthly rollup for this section.</p>
+							<h2>{detail.chartTitle}</h2>
+							<p className="muted">{detail.chartDescription}</p>
 						</div>
 						<LineChart color="#a78bfa" />
 					</div>
-					<RevenueTrendChart data={summary.revenueTrend} />
+					{detail.chartKind === "source" ? (
+						<ChannelBreakdownChart data={summary.channelBreakdown} />
+					) : detail.chartKind === "funnel" ? (
+						<FunnelPerformanceChart data={summary.funnel} />
+					) : detail.chartKind === "campaign" ? (
+						<CampaignRoiChart data={summary.campaigns} />
+					) : (
+						<RevenueTrendChart data={summary.revenueTrend} />
+					)}
 				</div>
 				<div className="panel">
 					<div className="panel-header">
 						<div>
-							<h2>Source mix</h2>
-							<p className="muted">Contribution by source dataset.</p>
+							<h2>{detail.focusTitle}</h2>
+							<p className="muted">{detail.focusDescription}</p>
 						</div>
 						<BarChart3 color="#38bdf8" />
 					</div>
-					<ChannelBreakdownChart data={summary.channelBreakdown} />
+					<div className="detail-grid">
+						{detail.focusRows.map((row) => (
+							<div className="detail-card" key={`${row.label}-${row.value}`}>
+								<span>{row.label}</span>
+								<strong>{row.value}</strong>
+								<small>{row.detail}</small>
+							</div>
+						))}
+					</div>
 				</div>
 			</section>
 
@@ -231,12 +179,12 @@ export default async function SectionPage({
 					<div className="panel-header">
 						<div>
 							<h2>
-								{section.mode === "optimizer"
+								{section.mode === "optimizer" || section.mode === "campaigns"
 									? "ROI comparison"
 									: "Conversion funnel"}
 							</h2>
 							<p className="muted">
-								{section.mode === "optimizer"
+								{section.mode === "optimizer" || section.mode === "campaigns"
 									? "Campaign return view where cost exists."
 									: "Available visitor/product/cart/order stages."}
 							</p>
@@ -253,24 +201,13 @@ export default async function SectionPage({
 				<div className="panel">
 					<div className="panel-header">
 						<div>
-							<h2>
-								{section.mode === "model" ? "Model baseline" : "Action plan"}
-							</h2>
-							<p className="muted">
-								Recommendations generated from the selected source data.
-							</p>
+							<h2>{detail.playbookTitle}</h2>
+							<p className="muted">Section-specific next moves.</p>
 						</div>
 						<Bot color="#f59e0b" />
 					</div>
-					{section.mode === "model" && (
-						<div className="model-card">
-							<span className="muted">30-day revenue baseline</span>
-							<strong>{formatIdr(forecast.predicted30DayRevenue)}</strong>
-							<small>Basis periods: {forecast.basis}</small>
-						</div>
-					)}
 					<ul className="insight-list">
-						{actions.map((action) => (
+						{detail.playbook.map((action) => (
 							<li key={action}>{action}</li>
 						))}
 					</ul>
