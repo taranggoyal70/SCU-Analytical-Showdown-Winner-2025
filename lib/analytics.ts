@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import Papa from "papaparse";
+import { trimPartialTail } from "@/lib/forecast";
 
 export type MetricName = "revenue" | "orders" | "visitors" | "cost";
 
@@ -42,6 +43,16 @@ export type DatasetSummary = {
 		withDates: number;
 		withoutDates: number;
 	};
+	/** Monthly revenue history (sorted by month) for sparklines. */
+	sparkline: number[];
+};
+
+export type Momentum = {
+	period: string;
+	previousPeriod: string;
+	revenue: number | null;
+	orders: number | null;
+	visitors: number | null;
 };
 
 export type DashboardSummary = {
@@ -62,6 +73,8 @@ export type DashboardSummary = {
 	};
 	datasets: DatasetSummary[];
 	revenueTrend: Array<{ period: string; revenue: number; orders: number; visitors: number }>;
+	/** Month-over-month change across the two most recent tracked months. */
+	momentum: Momentum | null;
 	channelBreakdown: Array<{ name: string; revenue: number; orders: number; visitors: number }>;
 	funnel: Array<{ stage: string; value: number }>;
 	campaigns: Array<{ name: string; revenue: number; cost: number; orders: number; roi: number }>;
@@ -161,20 +174,68 @@ function parseDateParts(year: string, month: string, day: string) {
 	return Number.isNaN(date.getTime()) ? null : date;
 }
 
+/**
+ * Source files mix two 8-digit date styles: YYYYMMDD (20250501) and
+ * DDMMYYYY (01032024). Validate the year/month ranges to pick the right one
+ * instead of guessing and producing garbage periods like year 0102.
+ */
+function parseCompactDate(token: string) {
+	const asYearFirst = {
+		year: Number(token.slice(0, 4)),
+		month: Number(token.slice(4, 6)),
+		day: Number(token.slice(6, 8)),
+	};
+	if (
+		asYearFirst.year >= 2000 &&
+		asYearFirst.year <= 2100 &&
+		asYearFirst.month >= 1 &&
+		asYearFirst.month <= 12 &&
+		asYearFirst.day >= 1 &&
+		asYearFirst.day <= 31
+	) {
+		return parseDateParts(
+			String(asYearFirst.year),
+			String(asYearFirst.month),
+			String(asYearFirst.day),
+		);
+	}
+
+	const asDayFirst = {
+		day: Number(token.slice(0, 2)),
+		month: Number(token.slice(2, 4)),
+		year: Number(token.slice(4, 8)),
+	};
+	if (
+		asDayFirst.year >= 2000 &&
+		asDayFirst.year <= 2100 &&
+		asDayFirst.month >= 1 &&
+		asDayFirst.month <= 12 &&
+		asDayFirst.day >= 1 &&
+		asDayFirst.day <= 31
+	) {
+		return parseDateParts(
+			String(asDayFirst.year),
+			String(asDayFirst.month),
+			String(asDayFirst.day),
+		);
+	}
+
+	return null;
+}
+
 function parsePeriodFromText(text: string): { start: Date | null; end: Date | null } {
 	const cleaned = cleanCell(text);
 	if (!cleaned || cleaned.toLowerCase() === "nan") {
 		return { start: null, end: null };
 	}
 
-	const compactRange = cleaned.match(
-		/(\d{4})(\d{2})(\d{2})[_-](\d{4})(\d{2})(\d{2})/,
-	);
+	const compactRange = cleaned.match(/(\d{8})[_-](\d{8})/);
 	if (compactRange) {
-		return {
-			start: parseDateParts(compactRange[1], compactRange[2], compactRange[3]),
-			end: parseDateParts(compactRange[4], compactRange[5], compactRange[6]),
-		};
+		const start = parseCompactDate(compactRange[1]);
+		const end = parseCompactDate(compactRange[2]);
+		if (start || end) {
+			return { start, end };
+		}
 	}
 
 	const longRange = cleaned.match(
@@ -416,8 +477,86 @@ function buildDatasetSummaries(rows: AnalyticsRow[]): DatasetSummary[] {
 				withDates: group.filter((row) => row.periodStart).length,
 				withoutDates: group.filter((row) => !row.periodStart).length,
 			},
+			sparkline: buildSparkline(group),
 		}))
 		.sort((a, b) => b.revenue - a.revenue);
+}
+
+function buildSparkline(rows: AnalyticsRow[]) {
+	const byMonth = new Map<string, number>();
+	for (const row of rows) {
+		if (!row.periodStart) continue;
+		const key = monthKey(row.periodStart);
+		byMonth.set(key, (byMonth.get(key) ?? 0) + row.metrics.revenue);
+	}
+	return [...byMonth.entries()]
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([, revenue]) => revenue);
+}
+
+function percentChange(current: number, previous: number) {
+	if (previous <= 0) return null;
+	return ((current - previous) / previous) * 100;
+}
+
+function buildMomentum(rows: AnalyticsRow[], maxDate: string | null): Momentum | null {
+	// Dataset exports cover different month ranges, so a blended
+	// month-over-month delta would compare different dataset mixes. Only
+	// datasets present in BOTH months are compared.
+	const perDatasetMonth = new Map<
+		string,
+		Map<string, { revenue: number; orders: number; visitors: number }>
+	>();
+	for (const row of rows) {
+		if (!row.periodStart) continue;
+		const month = monthKey(row.periodStart);
+		const datasetMonths = perDatasetMonth.get(row.datasetId) ?? new Map();
+		const current = datasetMonths.get(month) ?? { revenue: 0, orders: 0, visitors: 0 };
+		current.revenue += row.metrics.revenue;
+		current.orders += row.metrics.orders;
+		current.visitors += row.metrics.visitors;
+		datasetMonths.set(month, current);
+		perDatasetMonth.set(row.datasetId, datasetMonths);
+	}
+
+	const allMonths = [
+		...new Set(
+			[...perDatasetMonth.values()].flatMap((months) => [...months.keys()]),
+		),
+	].sort();
+	const usableMonths = trimPartialTail(
+		allMonths.map((period) => ({ period })),
+		maxDate,
+	).map((entry) => entry.period);
+	if (usableMonths.length < 2) return null;
+
+	const period = usableMonths[usableMonths.length - 1];
+	const previousPeriod = usableMonths[usableMonths.length - 2];
+
+	const current = { revenue: 0, orders: 0, visitors: 0 };
+	const previous = { revenue: 0, orders: 0, visitors: 0 };
+	let matchedDatasets = 0;
+	for (const months of perDatasetMonth.values()) {
+		const now = months.get(period);
+		const before = months.get(previousPeriod);
+		if (!now || !before) continue;
+		matchedDatasets += 1;
+		current.revenue += now.revenue;
+		current.orders += now.orders;
+		current.visitors += now.visitors;
+		previous.revenue += before.revenue;
+		previous.orders += before.orders;
+		previous.visitors += before.visitors;
+	}
+	if (!matchedDatasets) return null;
+
+	return {
+		period,
+		previousPeriod,
+		revenue: percentChange(current.revenue, previous.revenue),
+		orders: percentChange(current.orders, previous.orders),
+		visitors: percentChange(current.visitors, previous.visitors),
+	};
 }
 
 function buildTrend(rows: AnalyticsRow[]) {
@@ -557,6 +696,7 @@ export async function getDashboardSummary(filters: SearchFilters = {}): Promise<
 	const replyRateValues = blendRows
 		.filter((row) => "Conversion_Rate_Chats_Responded" in row.values)
 		.map((row) => parseNumber(row.values.Conversion_Rate_Chats_Responded) * 100);
+	const revenueTrend = buildTrend(blendRows);
 
 	const baseSummary = {
 		filters: {
@@ -580,7 +720,8 @@ export async function getDashboardSummary(filters: SearchFilters = {}): Promise<
 			replyRate: average(replyRateValues),
 		},
 		datasets,
-		revenueTrend: buildTrend(blendRows),
+		revenueTrend,
+		momentum: buildMomentum(blendRows, sortedDates[sortedDates.length - 1] ?? null),
 		channelBreakdown: buildBreakdown(blendDatasets),
 		funnel: buildFunnel(blendRows),
 		campaigns: buildCampaigns(blendDatasets),

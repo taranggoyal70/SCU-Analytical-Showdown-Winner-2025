@@ -106,9 +106,9 @@ export const dashboardSections: DashboardSection[] = [
 	{
 		slug: "forecast",
 		title: "Sales Forecast",
-		kicker: "Baseline prediction",
+		kicker: "Live projection",
 		description:
-			"Source-backed revenue trend and lightweight forecast baseline. The old XGBoost notebook remains as reference until retrained in the web runtime.",
+			"A revenue projection computed live from the tracked monthly history: least-squares trend, three-month horizon, and an uncertainty band derived from the actual fit residuals.",
 		datasetIds: [
 			"product_overview_cleaned",
 			"traffic_overview_cleaned",
@@ -116,10 +116,10 @@ export const dashboardSections: DashboardSection[] = [
 			"voucher_cleaned",
 		],
 		features: [
-			"Historical revenue trend",
-			"Recent-period forecast baseline",
-			"Model-readiness notes",
-			"Forecast API compatibility",
+			"Three-month revenue projection",
+			"Uncertainty band from fit residuals",
+			"Monthly trend slope",
+			"Recomputed on every request",
 		],
 		mode: "model",
 	},
@@ -286,7 +286,7 @@ export const dashboardSections: DashboardSection[] = [
 		title: "Adaptive Learning",
 		kicker: "Model monitoring",
 		description:
-			"Model-readiness and retraining queue view. This avoids fake retraining while preserving the old feature concept.",
+			"Data coverage and retraining readiness for the modeling layer: what the models can see today, what is missing, and when retraining becomes worthwhile.",
 		datasetIds: [
 			"traffic_overview_cleaned",
 			"product_overview_cleaned",

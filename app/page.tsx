@@ -13,11 +13,13 @@ import {
 	Users,
 	Wallet,
 } from "lucide-react";
+import { AnimatedNumber, DeltaChip } from "@/components/animated-number";
 import {
 	CampaignRoiChart,
 	ChannelBreakdownChart,
 	FunnelPerformanceChart,
 	RevenueTrendChart,
+	Sparkline,
 } from "@/components/charts";
 import { getDashboardSummary } from "@/lib/analytics";
 import {
@@ -38,6 +40,15 @@ type PageProps = {
 
 function metricNote(value: string | null, fallback = "Calculated from cleaned CSVs") {
 	return value || fallback;
+}
+
+function buildQueryString(params: { dataset?: string; from?: string; to?: string }) {
+	const query = new URLSearchParams();
+	if (params.dataset && params.dataset !== "all") query.set("dataset", params.dataset);
+	if (params.from) query.set("from", params.from);
+	if (params.to) query.set("to", params.to);
+	const value = query.toString();
+	return value ? `?${value}` : "";
 }
 
 export default async function Home({ searchParams }: PageProps) {
@@ -62,12 +73,13 @@ export default async function Home({ searchParams }: PageProps) {
 						<Sparkles size={16} />
 						Nazava Intelligence OS
 					</div>
-					<h1 className="title">Shopee analytics, rebuilt as a real web app.</h1>
+					<h1 className="title">Every Shopee signal. One source of truth.</h1>
 					<p className="subtitle">
-						This is no longer a Streamlit dashboard. The web app reads the cleaned
-						CSV dataset on the server, computes metrics on request, exposes a JSON
-						summary API, and keeps filters in the URL so nothing relies on
-						browser-only storage or hardcoded dashboard values.
+						Revenue, traffic, campaigns, service quality, and official income
+						statements — every number on this dashboard is computed on the server
+						from audited store exports, on every request. Filters live in the URL,
+						so any view you build can be shared as a link and opens identically
+						for everyone.
 					</p>
 				</div>
 
@@ -174,16 +186,32 @@ export default async function Home({ searchParams }: PageProps) {
 					<div className="metric-label">
 						<Wallet size={16} />
 						Tracked revenue
+						{summary.momentum && (
+							<DeltaChip
+								delta={summary.momentum.revenue}
+								label={`vs ${summary.momentum.previousPeriod}`}
+							/>
+						)}
 					</div>
-					<div className="metric-value">{formatIdr(summary.kpis.revenue)}</div>
+					<div className="metric-value">
+						<AnimatedNumber value={summary.kpis.revenue} format="idr" />
+					</div>
 					<div className="metric-note">Computed from revenue columns.</div>
 				</div>
 				<div className="metric-card">
 					<div className="metric-label">
 						<ShoppingCart size={16} />
 						Orders
+						{summary.momentum && (
+							<DeltaChip
+								delta={summary.momentum.orders}
+								label={`vs ${summary.momentum.previousPeriod}`}
+							/>
+						)}
 					</div>
-					<div className="metric-value">{formatInteger(summary.kpis.orders)}</div>
+					<div className="metric-value">
+						<AnimatedNumber value={summary.kpis.orders} format="integer" />
+					</div>
 					<div className="metric-note">
 						AOV {formatIdr(summary.kpis.averageOrderValue)}
 					</div>
@@ -192,8 +220,16 @@ export default async function Home({ searchParams }: PageProps) {
 					<div className="metric-label">
 						<Users size={16} />
 						Visitors
+						{summary.momentum && (
+							<DeltaChip
+								delta={summary.momentum.visitors}
+								label={`vs ${summary.momentum.previousPeriod}`}
+							/>
+						)}
 					</div>
-					<div className="metric-value">{formatCompact(summary.kpis.visitors)}</div>
+					<div className="metric-value">
+						<AnimatedNumber value={summary.kpis.visitors} format="compact" />
+					</div>
 					<div className="metric-note">
 						Conversion {formatPercent(summary.kpis.conversionRate, 2)}
 					</div>
@@ -204,7 +240,11 @@ export default async function Home({ searchParams }: PageProps) {
 						Customer signal
 					</div>
 					<div className="metric-value">
-						{summary.kpis.csat ? formatPercent(summary.kpis.csat, 1) : "—"}
+						{summary.kpis.csat ? (
+							<AnimatedNumber value={summary.kpis.csat} format="percent" />
+						) : (
+							"—"
+						)}
 					</div>
 					<div className="metric-note">
 						{metricNote(
@@ -286,12 +326,27 @@ export default async function Home({ searchParams }: PageProps) {
 								Every row below is generated from files in data/cleaned.
 							</p>
 						</div>
-						<Database color="#38bdf8" />
+						<div className="panel-actions">
+							<a
+								className="ghost-button"
+								href={`/api/export${buildQueryString(params)}`}
+							>
+								Export CSV
+							</a>
+							<a
+								className="ghost-button"
+								href={`/api/summary${buildQueryString(params)}`}
+							>
+								JSON API
+							</a>
+							<Database color="#38bdf8" />
+						</div>
 					</div>
 					<table className="dataset-table">
 						<thead>
 							<tr>
 								<th>Dataset</th>
+								<th className="spark-col">Trend</th>
 								<th>Rows</th>
 								<th>Sources</th>
 								<th>Orders</th>
@@ -308,6 +363,9 @@ export default async function Home({ searchParams }: PageProps) {
 											{dataset.dateCoverage.withDates} dated /{" "}
 											{dataset.dateCoverage.withoutDates} undated
 										</span>
+									</td>
+									<td className="spark-col">
+										<Sparkline data={dataset.sparkline} />
 									</td>
 									<td>{formatInteger(dataset.rows)}</td>
 									<td>{formatInteger(dataset.sourceFiles)}</td>

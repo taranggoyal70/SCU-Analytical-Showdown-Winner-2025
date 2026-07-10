@@ -12,10 +12,13 @@ import {
 import {
 	CampaignRoiChart,
 	ChannelBreakdownChart,
+	ForecastChart,
 	FunnelPerformanceChart,
 	RevenueTrendChart,
+	Sparkline,
 } from "@/components/charts";
 import { getDashboardSummary } from "@/lib/analytics";
+import { buildRevenueForecast, trimPartialTail } from "@/lib/forecast";
 import {
 	formatCompact,
 	formatIdr,
@@ -73,7 +76,7 @@ export default async function SectionPage({
 					<p className="subtitle">{section.description}</p>
 				</div>
 				<div className="panel">
-					<h2>Restored from Streamlit scope</h2>
+					<h2>What this page covers</h2>
 					<ul className="feature-list">
 						{section.features.map((feature) => (
 							<li key={feature}>{feature}</li>
@@ -150,6 +153,14 @@ export default async function SectionPage({
 						<FunnelPerformanceChart data={summary.funnel} />
 					) : detail.chartKind === "campaign" ? (
 						<CampaignRoiChart data={summary.campaigns} />
+					) : detail.chartKind === "forecast" ? (
+						<ForecastChart
+							data={
+								buildRevenueForecast(
+									trimPartialTail(summary.revenueTrend, summary.dateRange.max),
+								).points
+							}
+						/>
 					) : (
 						<RevenueTrendChart data={summary.revenueTrend} />
 					)}
@@ -222,12 +233,21 @@ export default async function SectionPage({
 							No hidden local state; this table is generated from committed CSVs.
 						</p>
 					</div>
-					<Database color="#38bdf8" />
+					<div className="panel-actions">
+						<a
+							className="ghost-button"
+							href={`/api/export${query.from || query.to ? `?${new URLSearchParams({ ...(query.from ? { from: query.from } : {}), ...(query.to ? { to: query.to } : {}) })}` : ""}`}
+						>
+							Export CSV
+						</a>
+						<Database color="#38bdf8" />
+					</div>
 				</div>
 				<table className="dataset-table">
 					<thead>
 						<tr>
 							<th>Dataset</th>
+							<th className="spark-col">Trend</th>
 							<th>Rows</th>
 							<th>Sources</th>
 							<th>Orders</th>
@@ -244,6 +264,9 @@ export default async function SectionPage({
 										{dataset.dateCoverage.withDates} dated /{" "}
 										{dataset.dateCoverage.withoutDates} undated
 									</span>
+								</td>
+								<td className="spark-col">
+									<Sparkline data={dataset.sparkline} />
 								</td>
 								<td>{formatInteger(dataset.rows)}</td>
 								<td>{formatInteger(dataset.sourceFiles)}</td>

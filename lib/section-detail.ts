@@ -3,6 +3,7 @@ import {
 	type DashboardSummary,
 	loadAnalyticsRows,
 } from "@/lib/analytics";
+import { buildRevenueForecast, trimPartialTail } from "@/lib/forecast";
 import {
 	formatCompact,
 	formatIdr,
@@ -35,7 +36,7 @@ export type SectionDetail = {
 	playbook: string[];
 	chartTitle: string;
 	chartDescription: string;
-	chartKind: "trend" | "source" | "funnel" | "campaign";
+	chartKind: "trend" | "source" | "funnel" | "campaign" | "forecast";
 };
 
 function numberValue(value: unknown) {
@@ -287,7 +288,73 @@ export async function buildSectionDetail(
 				chartKind: "funnel",
 			};
 		}
-		case "forecast":
+		case "forecast": {
+			const projection = buildRevenueForecast(
+				trimPartialTail(summary.revenueTrend, summary.dateRange.max),
+			);
+			const slopeDirection =
+				projection.monthlySlope >= 0 ? "growing" : "declining";
+			return {
+				metrics: [
+					{
+						label: "Next month",
+						value: projection.ready ? formatIdr(projection.nextForecast) : "Needs history",
+						note: projection.nextPeriod
+							? `Projected revenue for ${projection.nextPeriod}`
+							: "At least 4 tracked months required",
+					},
+					{
+						label: "Monthly trend",
+						value: projection.ready
+							? `${projection.monthlySlope >= 0 ? "+" : "−"}${formatIdr(Math.abs(projection.monthlySlope))}`
+							: "—",
+						note: projection.ready ? `Revenue is ${slopeDirection} per month on trend` : "Fitted slope",
+					},
+					{
+						label: "±95% band",
+						value: projection.ready ? formatIdr(projection.bandHalfWidth) : "—",
+						note: "Half-width from fit residuals",
+					},
+					{
+						label: "History",
+						value: `${projection.sampleMonths} months`,
+						note: "Tracked months feeding the fit",
+					},
+				],
+				focusTitle: "How this projection works",
+				focusDescription:
+					"Ordinary least-squares trend over the tracked monthly revenue, recomputed from the committed CSVs on every request. No pre-trained artifacts, no invented accuracy numbers.",
+				focusRows: [
+					{
+						label: "Method",
+						value: "OLS trend",
+						detail: "Straight-line fit over monthly revenue with a residual-based uncertainty band.",
+					},
+					{
+						label: "Horizon",
+						value: "3 months",
+						detail: "Dashed projection beyond the last tracked month.",
+					},
+					{
+						label: "Guardrail",
+						value: "Partial months excluded",
+						detail: "A trailing month with incomplete tracking is dropped from the fit automatically.",
+					},
+					...commonRows(summary),
+				],
+				playbookTitle: "Forecast playbook",
+				playbook: [
+					"Treat the band, not the line, as the planning range — commit inventory and ad spend against the lower bound.",
+					"Re-check the projection after each new monthly export lands; the fit updates automatically.",
+					"Add customer/SKU-level exports to graduate from trend fitting to driver-based forecasting.",
+					...basePlaybook,
+				],
+				chartTitle: "Revenue projection",
+				chartDescription:
+					"Solid area is tracked history; the dashed line and shaded band are the fitted projection.",
+				chartKind: "forecast",
+			};
+		}
 		case "segments":
 		case "adaptive-learning": {
 			const datedRows = summary.quality.totalRows - summary.quality.rowsWithoutDates;
@@ -308,22 +375,22 @@ export async function buildSectionDetail(
 					{ label: "Feature sources", value: formatInteger(summary.quality.datasets), note: "Datasets feeding view" },
 				],
 				focusTitle: "Model readiness",
-				focusDescription: "These pages preserve the AI/ML feature area without pretending the web runtime retrained models.",
+				focusDescription:
+					"Coverage and readiness signals for the modeling layer, measured from the committed data.",
 				focusRows: [
 					{ label: "Dated rows", value: formatInteger(datedRows), detail: "Rows available for time-series validation." },
-					{ label: "Recent basis", value: recent.map((point) => point.period).join(", ") || "None", detail: "Periods used for lightweight baseline." },
+					{ label: "Recent basis", value: recent.map((point) => point.period).join(", ") || "None", detail: "Periods used for the recent baseline." },
 					{ label: "Customer IDs", value: "Not available", detail: "Segmentation is cohort-style until customer-level IDs are provided." },
 					...commonRows(summary),
 				],
 				playbookTitle: "Modeling playbook",
 				playbook: [
-					"Wire a saved model artifact before claiming XGBoost/Prophet predictions in production.",
 					"Add customer/SKU identifiers to graduate from cohort summaries to true segmentation and recommendations.",
-					"Use the baseline forecast as a sanity check, not as an automated buying/spend decision.",
+					"Use the recent baseline as a sanity check, not as an automated buying/spend decision.",
 					...basePlaybook,
 				],
 				chartTitle: "Model input trend",
-				chartDescription: "Historical signal available to forecasting/readiness pages.",
+				chartDescription: "Historical signal available to the modeling layer.",
 				chartKind: "trend",
 			};
 		}
