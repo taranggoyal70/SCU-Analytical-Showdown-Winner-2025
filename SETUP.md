@@ -1,34 +1,42 @@
 # Setup
 
+## Web app
+
 Install dependencies:
+
 ```bash
-pip install -r requirements.txt
+npm install
 ```
 
 Run the dashboard:
+
 ```bash
-cd dashboard
-streamlit run app.py
+npm run dev
 ```
 
-Login: `admin` / `admin123`
+Open:
 
-Data files are in `data/cleaned/` and load automatically.
+```text
+http://localhost:3000
+```
 
-## Google OAuth (Optional)
+## Production build
 
-If you want to enable Google login:
+```bash
+npm run build
+npm start
+```
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project
-3. Enable Google+ API
-4. Create OAuth 2.0 credentials
-5. Add to `.env`:
-   ```
-   GOOGLE_CLIENT_ID=your_client_id
-   GOOGLE_CLIENT_SECRET=your_secret
-   ```
+## Data
 
-## Demo Mode
+The active app loads CSV files from:
 
-Without OAuth configured, the app runs in demo mode with sample data.
+```text
+data/cleaned
+```
+
+No browser-only saved state is used. Dashboard filters are encoded in the URL as `dataset`, `from`, and `to` query parameters.
+
+## Legacy Python tools
+
+The Streamlit dashboard and Python ML scripts remain in the repo for historical reference, but they are not the production web entrypoint.

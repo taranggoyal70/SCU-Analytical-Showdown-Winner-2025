@@ -1,44 +1,54 @@
-# Nazava Analytics
+# Nazava Analytics Web
 
-Analytics dashboard built for Shopee e-commerce data analysis. Tracks sales, traffic, campaigns, and customer service metrics.
+Production-style web dashboard for the SCU Analytical Showdown Shopee/Nazava dataset.
 
-## What it does
+The user-facing app has been migrated from Streamlit to a proper Next.js web app. It reads the cleaned CSV files in `data/cleaned` on the server, computes KPIs dynamically, and exposes both a polished dashboard and a JSON summary API.
 
-- Sales forecasting with ML models
-- Traffic and conversion analysis
-- Campaign performance tracking
-- Customer service metrics
-- Product performance insights
+## What changed
 
-## Running locally
+- Replaced the Streamlit entrypoint with a Next.js App Router web app.
+- Removed hardcoded demo-login UX from the primary app path.
+- Removed browser-only saved state. Filters are URL query parameters.
+- Removed local absolute data paths from the active web app.
+- Added server-side CSV ingestion from `data/cleaned`.
+- Added derived KPIs, trends, funnel, campaign performance, generated insights, and dataset audit.
+- Updated Docker, Render, and Procfile deployment commands for Node/Next.
+
+## Run locally
 
 ```bash
-pip install -r requirements.txt
-cd dashboard
-streamlit run app.py
+npm install
+npm run dev
 ```
 
-Login with `admin` / `admin123`
+Open [http://localhost:3000](http://localhost:3000).
 
-## Tech used
+## Build
 
-- Streamlit for the dashboard
-- XGBoost and scikit-learn for forecasting
-- Plotly for charts
-- Pandas for data processing
-
-## Project structure
-
-```
-dashboard/    # Main app and pages
-ml/          # ML models
-backend/     # API (optional)
-data/        # CSV data files
+```bash
+npm run build
+npm start
 ```
 
-## Deployment
+## API
 
-Works on Streamlit Cloud, Render, or Railway. Just point to `dashboard/app.py` as the entry point.
+The app exposes the same server-computed summary as JSON:
 
-For Render: `render.yaml` is already configured
-For others: Use `streamlit run dashboard/app.py --server.port=$PORT`
+```bash
+curl "http://localhost:3000/api/summary"
+curl "http://localhost:3000/api/summary?dataset=traffic_overview_cleaned&from=2025-01-01&to=2025-12-31"
+```
+
+## Data source
+
+The source of truth is the committed cleaned CSV dataset:
+
+```text
+data/cleaned/*.csv
+```
+
+The dashboard does not hardcode KPI values. It calculates visible numbers from the rows loaded from those files.
+
+## Legacy folders
+
+The old Streamlit dashboard, notebook, Python scripts, and ML experiments remain in the repository for reference. The production web entrypoint is now the Next.js app in `app/`.

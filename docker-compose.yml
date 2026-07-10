@@ -56,20 +56,16 @@ services:
       redis:
         condition: service_healthy
 
-  # Streamlit Dashboard
-  dashboard:
+  # Next.js Web App
+  web:
     build:
-      context: ./dashboard
+      context: .
       dockerfile: Dockerfile
-    container_name: shopee_dashboard
-    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    container_name: shopee_web
     ports:
-      - "8501:8501"
+      - "3000:3000"
     environment:
       API_URL: http://backend:8000
-    volumes:
-      - ./dashboard:/app
-      - ../analytical-showdown-pipeline/cleaned_data:/data/cleaned_data
     depends_on:
       - backend
 

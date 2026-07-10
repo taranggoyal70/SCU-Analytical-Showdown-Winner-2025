@@ -43,8 +43,14 @@ dashboard/users.json
 # Config (keep structure, not content)
 *.json
 !package.json
+!package-lock.json
 !tsconfig.json
 !requirements.txt
 
 # Logs
 *.log
+
+# Next.js / Node
+.next/
+node_modules/
+*.tsbuildinfo

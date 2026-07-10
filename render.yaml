@@ -1,12 +1,12 @@
 services:
   - type: web
     name: nazava-analytics
-    env: python
+    env: node
     region: oregon
     plan: free
     branch: main
-    buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run dashboard/app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true
+    buildCommand: npm install && npm run build
+    startCommand: npm start
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
+      - key: NODE_VERSION
+        value: 24.10.0
