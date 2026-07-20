@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { trimPartialTail } from "@/lib/forecast";
 import { loadAnalyticsSnapshot } from "@/lib/data-source";
+import { trendStats, type TrendStats } from "@/lib/trend-stats";
 import type { NormalizedExport } from "@/lib/export-ingestion";
 
 export type MetricName = "revenue" | "orders" | "visitors" | "cost";
@@ -73,6 +74,8 @@ export type DashboardSummary = {
 	};
 	datasets: DatasetSummary[];
 	revenueTrend: Array<{ period: string; revenue: number; orders: number; visitors: number }>;
+	/** Peak/trough months, CMGR, and average growth over the revenue trend. */
+	trendStats: TrendStats;
 	/** Month-over-month change across the two most recent tracked months. */
 	momentum: Momentum | null;
 	channelBreakdown: Array<{ name: string; revenue: number; orders: number; visitors: number }>;
@@ -694,6 +697,7 @@ export async function getDashboardSummary(filters: SearchFilters = {}): Promise<
 		},
 		datasets,
 		revenueTrend,
+		trendStats: trendStats(revenueTrend),
 		momentum: buildMomentum(blendRows, sortedDates[sortedDates.length - 1] ?? null),
 		channelBreakdown: buildBreakdown(blendDatasets),
 		funnel: buildFunnel(blendRows),
